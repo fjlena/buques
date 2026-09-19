@@ -1,5 +1,6 @@
 package es.puertosantander.buques.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -26,16 +28,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import es.puertosantander.buques.data.Buque
+import es.puertosantander.buques.data.DetalleBuque
 import es.puertosantander.buques.data.Lista
+import es.puertosantander.buques.data.Movimiento
+import es.puertosantander.buques.data.TipoMovimiento
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-/** Convierte un código ISO de dos letras en el emoji de su bandera. */
+/** Convierte un codigo ISO de dos letras en el emoji de su bandera. */
 fun banderaEmoji(iso: String): String {
     if (iso.length != 2 || !iso.all { it in 'A'..'Z' }) return ""
     val base = 0x1F1E6 - 'A'.code
@@ -59,7 +66,7 @@ fun tiempoRelativo(momento: LocalDateTime, ahora: LocalDateTime = LocalDateTime.
     return if (pasado) "hace $texto" else "en $texto"
 }
 
-/** Muestra "19/09 21:35" y añade el año solo si no es el actual. */
+/** Muestra "19/09 21:35" y anade el ano solo si no es el actual. */
 fun fechaCorta(texto: String): String {
     val f = Buque.parseFecha(texto) ?: return texto
     val anioActual = LocalDate.now().year
@@ -68,10 +75,153 @@ fun fechaCorta(texto: String): String {
     return if (f.year == anioActual) "$dia $hora" else "$dia/${f.year} $hora"
 }
 
+fun soloHora(texto: String): String {
+    val f = Buque.parseFecha(texto) ?: return texto
+    return "%02d:%02d".format(f.hour, f.minute)
+}
+
+private val ES = java.util.Locale("es", "ES")
+
+/** "140,6 m" a partir de los metros con decimales de la fuente. */
+fun esloraTexto(detalle: DetalleBuque?): String? =
+    detalle?.esloraM?.let { String.format(ES, "%.1f m", it) }
+
+/** "7.852 GT" con separador de miles espanol. */
+fun tonelajeTexto(detalle: DetalleBuque?): String? =
+    detalle?.tonelajeBruto?.let { String.format(ES, "%,.0f GT", it) }
+
+// ---------------------------------------------------------------------------
+// Tarjeta de movimiento: la usa la pantalla principal
+// ---------------------------------------------------------------------------
+
+@Composable
+fun MovimientoCard(
+    movimiento: Movimiento,
+    detalle: DetalleBuque?,
+    esProximo: Boolean,
+    yaPasado: Boolean,
+    onClick: (Buque) -> Unit
+) {
+    val entrada = movimiento.tipo == TipoMovimiento.ENTRADA
+    val colorTipo =
+        if (entrada) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = if (esProximo) 8.dp else 5.dp)
+            .clickable { onClick(movimiento.buque) },
+        shape = RoundedCornerShape(14.dp),
+        border = if (esProximo) BorderStroke(2.dp, colorTipo) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (esProximo) 4.dp else 1.dp)
+    ) {
+        Column(Modifier.padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp)) {
+
+            if (esProximo) {
+                Text(
+                    "PRÓXIMO MOVIMIENTO",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = colorTipo
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Hora grande a la izquierda: la lista se lee como un horario.
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(56.dp)
+                ) {
+                    Text(
+                        soloHora(movimiento.horaTexto),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (yaPasado) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface
+                    )
+                    Etiqueta(
+                        texto = if (entrada) "ENTRA" else "SALE",
+                        color = colorTipo
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (movimiento.buque.bandera.isNotEmpty()) {
+                            Text(
+                                banderaEmoji(movimiento.buque.bandera),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(
+                            movimiento.buque.nombre,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    val detalles = listOfNotNull(
+                        movimiento.buque.muelle.ifBlank { null },
+                        esloraTexto(detalle),
+                        movimiento.buque.procedencia.ifBlank { null }
+                    )
+                    if (detalles.isNotEmpty()) {
+                        Text(
+                            detalles.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    movimiento.momento?.let {
+                        Text(
+                            tiempoRelativo(it),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (esProximo) FontWeight.Bold else FontWeight.Normal,
+                            color = if (esProximo) colorTipo
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "Ver ficha del buque",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun Etiqueta(texto: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = 0.15f),
+        contentColor = color,
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            texto,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tarjeta completa: pestanas de entradas, salidas y buques en el puerto
+// ---------------------------------------------------------------------------
+
 @Composable
 fun BuqueCard(
     buque: Buque,
     lista: Lista,
+    detalle: DetalleBuque?,
     onClick: (Buque) -> Unit
 ) {
     Card(
@@ -84,7 +234,6 @@ fun BuqueCard(
     ) {
         Column(Modifier.padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp)) {
 
-            // Nombre del buque: al pulsar se abre la ficha de VesselFinder.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (buque.bandera.isNotEmpty()) {
                     Text(banderaEmoji(buque.bandera), style = MaterialTheme.typography.titleMedium)
@@ -97,12 +246,14 @@ fun BuqueCard(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    if (buque.procedencia.isNotEmpty() || buque.bandera.isNotEmpty()) {
+                    val subtitulo = listOfNotNull(
+                        buque.procedencia.ifBlank { null },
+                        detalle?.tipoBuque,
+                        buque.bandera.ifBlank { null }?.let { "bandera $it" }
+                    )
+                    if (subtitulo.isNotEmpty()) {
                         Text(
-                            listOfNotNull(
-                                buque.procedencia.ifBlank { null },
-                                buque.bandera.ifBlank { null }?.let { "bandera $it" }
-                            ).joinToString(" · "),
+                            subtitulo.joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -110,7 +261,7 @@ fun BuqueCard(
                 }
                 Icon(
                     Icons.Default.ChevronRight,
-                    contentDescription = "Ver ficha en VesselFinder",
+                    contentDescription = "Ver ficha del buque",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -133,6 +284,14 @@ fun BuqueCard(
                 }
             }
 
+            esloraTexto(detalle)?.let { eslora ->
+                val gt = tonelajeTexto(detalle)
+                DatoFila(
+                    Icons.Default.Straighten,
+                    "Eslora",
+                    if (gt != null) "$eslora · $gt" else eslora
+                )
+            }
             if (buque.muelle.isNotEmpty()) DatoFila(Icons.Default.Anchor, "Muelle", buque.muelle)
             if (buque.consignatario.isNotEmpty()) {
                 DatoFila(Icons.Default.Business, "Consignatario", buque.consignatario)
@@ -187,7 +346,7 @@ private fun SalidaPrevista(buque: Buque) {
 
 @Composable
 private fun DatoFila(
-    icono: androidx.compose.ui.graphics.vector.ImageVector,
+    icono: ImageVector,
     etiqueta: String,
     valor: String,
     destacado: Boolean = false

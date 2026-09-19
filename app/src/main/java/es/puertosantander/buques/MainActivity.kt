@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
@@ -23,35 +24,44 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import es.puertosantander.buques.data.Buque
 import es.puertosantander.buques.data.BuquesViewModel
+import es.puertosantander.buques.data.EstadoApp
 import es.puertosantander.buques.data.EstadoLista
 import es.puertosantander.buques.data.Lista
+import es.puertosantander.buques.data.TipoMovimiento
 import es.puertosantander.buques.ui.BuqueCard
 import es.puertosantander.buques.ui.BuquesTheme
 import es.puertosantander.buques.ui.FichaVesselFinder
+import es.puertosantander.buques.ui.MovimientoCard
+import es.puertosantander.buques.ui.tiempoRelativo
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,6 +74,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Pestanas de la aplicacion. La primera mezcla entradas y salidas. */
+private enum class Pantalla(val titulo: String) {
+    PRINCIPAL("Hoy"),
+    ENTRADAS("Entradas"),
+    SALIDAS("Salidas"),
+    EN_PUERTO("En puerto");
+
+    val lista: Lista?
+        get() = when (this) {
+            PRINCIPAL -> null
+            ENTRADAS -> Lista.ENTRADAS
+            SALIDAS -> Lista.SALIDAS
+            EN_PUERTO -> Lista.EN_PUERTO
+        }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App(vm: BuquesViewModel = viewModel()) {
@@ -72,13 +98,19 @@ fun App(vm: BuquesViewModel = viewModel()) {
 
     val buque = seleccionado
     if (buque != null) {
-        FichaVesselFinder(buque = buque, onCerrar = { seleccionado = null })
+        // Al abrir la ficha se consulta VesselFinder para ese buque.
+        LaunchedEffect(buque.clave) { vm.cargarVesselFinder(buque) }
+        FichaVesselFinder(
+            buque = buque,
+            detalle = estado.detalle(buque),
+            onCerrar = { seleccionado = null }
+        )
         return
     }
 
-    val listas = Lista.entries
-    val pager = rememberPagerState(pageCount = { listas.size })
-    val scope = rememberCoroutineScopeCompat()
+    val pantallas = Pantalla.entries
+    val pager = rememberPagerState(pageCount = { pantallas.size })
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -110,15 +142,18 @@ fun App(vm: BuquesViewModel = viewModel()) {
                         actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 )
-                TabRow(selectedTabIndex = pager.currentPage) {
-                    listas.forEachIndexed { i, lista ->
-                        val n = estado.de(lista).buques.size
+                ScrollableTabRow(selectedTabIndex = pager.currentPage, edgePadding = 0.dp) {
+                    pantallas.forEachIndexed { i, pantalla ->
+                        val n = when (pantalla) {
+                            Pantalla.PRINCIPAL -> estado.movimientos.size
+                            else -> estado.de(pantalla.lista!!).buques.size
+                        }
                         Tab(
                             selected = pager.currentPage == i,
                             onClick = { scope.launch { pager.animateScrollToPage(i) } },
                             text = {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(lista.titulo)
+                                    Text(pantalla.titulo)
                                     if (n > 0) Badge { Text(n.toString()) }
                                 }
                             }
@@ -137,16 +172,83 @@ fun App(vm: BuquesViewModel = viewModel()) {
             state = pager,
             modifier = Modifier.padding(padding).fillMaxSize()
         ) { pagina ->
-            val lista = listas[pagina]
+            val pantalla = pantallas[pagina]
             PullToRefreshBox(
-                isRefreshing = estado.de(lista).cargando,
+                isRefreshing = estado.cargando,
                 onRefresh = { vm.actualizar() },
                 modifier = Modifier.fillMaxSize()
             ) {
-                PanelLista(
-                    lista = lista,
-                    estadoLista = estado.de(lista),
-                    onBuque = { seleccionado = it }
+                if (pantalla == Pantalla.PRINCIPAL) {
+                    PanelPrincipal(estado = estado, onBuque = { seleccionado = it })
+                } else {
+                    val lista = pantalla.lista!!
+                    PanelLista(
+                        lista = lista,
+                        estadoLista = estado.de(lista),
+                        estado = estado,
+                        onBuque = { seleccionado = it }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Pantalla principal: entradas y salidas del dia en un solo horario, en orden
+ * cronologico. Los movimientos ya ocurridos quedan atenuados y el primero que
+ * esta por llegar se marca como proximo.
+ */
+@Composable
+private fun PanelPrincipal(estado: EstadoApp, onBuque: (Buque) -> Unit) {
+    val ahora = LocalDateTime.now()
+    val movimientos = estado.movimientos
+    val proximo = estado.proximo(ahora)
+
+    val errores = listOf(Lista.ENTRADAS, Lista.SALIDAS).mapNotNull { estado.de(it).error }
+
+    if (movimientos.isEmpty()) {
+        Mensaje(
+            if (errores.isNotEmpty()) "No se han podido cargar los datos"
+            else "Sin movimientos registrados hoy",
+            errores.firstOrNull() ?: "Desliza hacia abajo o pulsa el botón de actualizar"
+        )
+        return
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(top = 6.dp, bottom = 88.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        item {
+            Cabecera(proximo?.let {
+                val cual = if (it.tipo == TipoMovimiento.ENTRADA) "Entra" else "Sale"
+                "$cual ${it.buque.nombre} · ${tiempoRelativo(it.momento!!, ahora)}"
+            } ?: "No quedan movimientos previstos para hoy")
+        }
+
+        itemsIndexed(movimientos) { indice, movimiento ->
+            val pasado = movimiento.momento?.isBefore(ahora) == true
+            val esProximo = proximo != null &&
+                movimiento.buque.registro == proximo.buque.registro &&
+                movimiento.tipo == proximo.tipo &&
+                movimiento.horaTexto == proximo.horaTexto
+
+            // Separador entre lo ya ocurrido y lo que esta por venir.
+            val anterior = movimientos.getOrNull(indice - 1)
+            if (esProximo && anterior?.momento?.isBefore(ahora) == true) {
+                HorizontalDivider(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                )
+            }
+
+            Box(Modifier.alpha(if (pasado) 0.55f else 1f)) {
+                MovimientoCard(
+                    movimiento = movimiento,
+                    detalle = estado.detalle(movimiento.buque),
+                    esProximo = esProximo,
+                    yaPasado = pasado,
+                    onClick = onBuque
                 )
             }
         }
@@ -154,9 +256,21 @@ fun App(vm: BuquesViewModel = viewModel()) {
 }
 
 @Composable
+private fun Cabecera(texto: String) {
+    Text(
+        texto,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+    )
+}
+
+@Composable
 private fun PanelLista(
     lista: Lista,
     estadoLista: EstadoLista,
+    estado: EstadoApp,
     onBuque: (Buque) -> Unit
 ) {
     when {
@@ -188,7 +302,12 @@ private fun PanelLista(
                 }
             }
             items(estadoLista.buques) { buque ->
-                BuqueCard(buque = buque, lista = lista, onClick = onBuque)
+                BuqueCard(
+                    buque = buque,
+                    lista = lista,
+                    detalle = estado.detalle(buque),
+                    onClick = onBuque
+                )
             }
         }
     }
@@ -222,7 +341,3 @@ private fun Mensaje(titulo: String, detalle: String?) {
         }
     }
 }
-
-/** Pequeño ayudante para no importar rememberCoroutineScope en varios sitios. */
-@Composable
-private fun rememberCoroutineScopeCompat() = androidx.compose.runtime.rememberCoroutineScope()

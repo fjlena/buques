@@ -31,7 +31,10 @@ data class Buque(
     val atraqueInicio: LocalDateTime? get() = parseFecha(atraqueInicioTexto)
     val atraqueFin: LocalDateTime? get() = parseFecha(atraqueFinTexto)
 
-    /** URL de búsqueda de la ficha en VesselFinder por nombre de buque. */
+    /** Clave con la que se cachean los datos tecnicos: son del buque, no de la escala. */
+    val clave: String get() = nombre.uppercase()
+
+    /** Busqueda en VesselFinder por nombre, para cuando no se conoce el IMO. */
     val urlVesselFinder: String
         get() = "https://www.vesselfinder.com/vessels?name=" +
             java.net.URLEncoder.encode(nombre, "UTF-8")
@@ -48,15 +51,67 @@ data class Buque(
     }
 }
 
+/**
+ * Datos tecnicos del buque. Se completan en dos fases y de dos fuentes: la
+ * ficha del puerto (eslora, tonelaje, destino) y VesselFinder (foto, IMO, MMSI,
+ * tipo). Cada campo es opcional: puede fallar una fuente sin perder la otra.
+ */
+data class DetalleBuque(
+    val esloraM: Double? = null,
+    val mangaM: Double? = null,
+    val tonelajeBruto: Double? = null,
+    val destino: String? = null,
+    val tipoMercancia: String? = null,
+    val imo: String? = null,
+    val mmsi: String? = null,
+    val tipoBuque: String? = null,
+    val anioConstruccion: String? = null,
+    val urlFoto: String? = null,
+    /** true cuando ya se ha intentado consultar VesselFinder (con exito o sin el). */
+    val vesselFinderConsultado: Boolean = false
+) {
+    /** Ficha de VesselFinder por IMO, mas precisa que la busqueda por nombre. */
+    val urlFichaImo: String? get() = imo?.let { "https://www.vesselfinder.com/vessels/details/$it" }
+
+    fun combinar(otro: DetalleBuque) = DetalleBuque(
+        esloraM = esloraM ?: otro.esloraM,
+        mangaM = mangaM ?: otro.mangaM,
+        tonelajeBruto = tonelajeBruto ?: otro.tonelajeBruto,
+        destino = destino ?: otro.destino,
+        tipoMercancia = tipoMercancia ?: otro.tipoMercancia,
+        imo = imo ?: otro.imo,
+        mmsi = mmsi ?: otro.mmsi,
+        tipoBuque = tipoBuque ?: otro.tipoBuque,
+        anioConstruccion = anioConstruccion ?: otro.anioConstruccion,
+        urlFoto = urlFoto ?: otro.urlFoto,
+        vesselFinderConsultado = vesselFinderConsultado || otro.vesselFinderConsultado
+    )
+}
+
 enum class Lista(val titulo: String, val url: String) {
     ENTRADAS("Entradas", "https://www.puertosantander.es/es/entradas-hoy"),
     SALIDAS("Salidas", "https://www.puertosantander.es/es/salidas-hoy"),
     EN_PUERTO("En puerto", "https://www.puertosantander.es/es/buques-en-el-puerto")
 }
 
-/** Resultado de una descarga: los buques más la fecha de actualización que publica la web. */
 data class ResultadoLista(
     val buques: List<Buque> = emptyList(),
     /** Texto de la cabecera H1, p. ej. "Entradas hoy - 19/09/2026 22:15". */
     val encabezado: String? = null
 )
+
+enum class TipoMovimiento(val etiqueta: String) { ENTRADA("Entrada"), SALIDA("Salida") }
+
+/**
+ * Un movimiento del dia: la entrada o la salida de un buque, con su hora.
+ * Es la unidad de la pantalla principal, que mezcla ambas cronologicamente.
+ */
+data class Movimiento(
+    val buque: Buque,
+    val tipo: TipoMovimiento,
+    val momento: LocalDateTime?
+) {
+    val horaTexto: String
+        get() = if (tipo == TipoMovimiento.ENTRADA) buque.atraqueInicioTexto
+        else buque.atraqueFinTexto
+}

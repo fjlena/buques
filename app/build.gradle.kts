@@ -56,8 +56,11 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Descarga y parseo del HTML del Puerto de Santander
+    // Descarga y parseo del HTML del Puerto de Santander y de VesselFinder
     implementation("org.jsoup:jsoup:1.18.3")
+
+    // Carga y cache de la fotografia del buque
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
