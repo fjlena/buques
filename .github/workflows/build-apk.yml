@@ -26,8 +26,16 @@ jobs:
       - name: Compilar APK de release
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
+      - name: Renombrar el APK con la fecha y el numero de compilacion
+        run: |
+          cd app/build/outputs/apk/release
+          for f in *.apk; do
+            mv "$f" "BuquesSantander-v1.1-build${{ github.run_number }}-$(date +%Y%m%d-%H%M).apk"
+          done
+          ls -l
+
       - name: Subir el APK
         uses: actions/upload-artifact@v5
         with:
-          name: BuquesSantander-apk
+          name: BuquesSantander-apk-build${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
