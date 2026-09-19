@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Casco -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,62 L80,62 L72,76 L36,76 Z" />
+    <!-- Superestructura -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,50 L70,50 L70,60 L46,60 Z" />
+    <!-- Chimenea -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,40 L62,40 L62,50 L56,50 Z" />
+    <!-- Agua -->
+    <path
+        android:fillColor="#7FC6E8"
+        android:pathData="M24,82 L84,82 L84,86 L24,86 Z" />
+</vector>
