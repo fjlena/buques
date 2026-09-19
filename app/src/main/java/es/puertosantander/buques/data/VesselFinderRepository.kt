@@ -4,44 +4,115 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import kotlin.math.abs
+import kotlin.math.max
 
 /**
- * Obtiene de VesselFinder lo que la web del puerto no publica: la fotografía
- * del buque, su IMO/MMSI, el tipo y el año de construcción.
+ * Obtiene de VesselFinder lo que la web del puerto no publica: la fotografia
+ * del buque, su IMO/MMSI, el tipo y el ano de construccion.
  *
- * VesselFinder no tiene API pública gratuita y la ficha del puerto no incluye
- * el IMO, así que hay que dar dos pasos: buscar por nombre y, del primer
- * resultado, abrir su ficha. Si algo falla (nombre ambiguo, sin foto, respuesta
- * denegada) se devuelve un detalle vacío marcado como ya consultado: la
- * aplicación sigue funcionando con los datos del puerto.
- *
- * Se consulta solo al abrir la ficha de un buque, nunca para toda la lista:
- * serían decenas de peticiones a un servidor ajeno en cada actualización.
+ * El problema de buscar por nombre es que hay homonimos de tamanos muy
+ * distintos: "SALAMANCA" es a la vez un ferry de 214 m y varios veleros. Para
+ * no confundirlos se comprueba la ESLORA de cada candidato contra la que
+ * publica el puerto, con un margen generoso por si alguna de las dos fuentes
+ * tiene el dato redondeado o mal. Solo si cuadra se acepta la ficha.
  */
 object VesselFinderRepository {
 
     private const val BASE = "https://www.vesselfinder.com"
 
-    suspend fun cargar(nombre: String): DetalleBuque = withContext(Dispatchers.IO) {
-        try {
-            val ficha = fichaDe(nombre) ?: return@withContext DetalleBuque(vesselFinderConsultado = true)
-            parsearFicha(ficha)
-        } catch (e: Exception) {
-            DetalleBuque(vesselFinderConsultado = true)
-        }
+    /** Numero maximo de fichas candidatas que se abren por busqueda. */
+    private const val MAX_CANDIDATOS = 5
+
+    /**
+     * Margen admitido entre la eslora del puerto y la de VesselFinder:
+     * el mayor de 8 metros o el 8 % de la eslora. Cubre redondeos y errores
+     * de tecleo sin llegar a confundir un mercante con un velero.
+     */
+    internal fun tolerancia(esloraM: Double): Double = max(8.0, esloraM * 0.08)
+
+    internal fun coincideEslora(referencia: Double?, candidata: Double?): Boolean? {
+        if (referencia == null || candidata == null) return null // no se puede juzgar
+        return abs(referencia - candidata) <= tolerancia(referencia)
     }
 
-    /** Busca el buque por nombre y devuelve el documento de su ficha. */
-    private fun fichaDe(nombre: String): Document? {
+    /** Nombres comparables: solo letras y digitos, en mayusculas. */
+    internal fun normalizar(nombre: String): String =
+        PuertoRepository.sinAcentos(nombre).uppercase().filter { it.isLetterOrDigit() }
+
+    /**
+     * @param esloraReferenciaM eslora segun la web del puerto, si se conoce.
+     *        Sin ella no se puede verificar la identidad y el resultado se
+     *        marca como no verificado.
+     */
+    suspend fun cargar(nombre: String, esloraReferenciaM: Double?): DetalleBuque =
+        withContext(Dispatchers.IO) {
+            try {
+                buscar(nombre, esloraReferenciaM)
+            } catch (e: Exception) {
+                DetalleBuque(vesselFinderConsultado = true)
+            }
+        }
+
+    private fun buscar(nombre: String, esloraReferenciaM: Double?): DetalleBuque {
         val consulta = java.net.URLEncoder.encode(nombre, "UTF-8")
         val busqueda = descargar("$BASE/vessels?name=$consulta")
 
-        // Si la búsqueda ya ha redirigido a una ficha, el enlace apunta a sí misma.
-        val enlace = busqueda.selectFirst("a[href*=/vessels/details/]")?.absUrl("href")
-            ?: return null
+        // La busqueda puede haber redirigido ya a una ficha concreta.
+        val fichas: List<Document> =
+            if (busqueda.location().contains("/vessels/details/")) listOf(busqueda)
+            else busqueda.select("a[href*=/vessels/details/]")
+                .map { it.absUrl("href") }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(MAX_CANDIDATOS)
+                .mapNotNull { url -> runCatching { descargar(url) }.getOrNull() }
 
-        return if (busqueda.location().contains("/vessels/details/")) busqueda
-        else descargar(enlace)
+        if (fichas.isEmpty()) return DetalleBuque(vesselFinderConsultado = true)
+
+        val buscado = normalizar(nombre)
+        var mejorPorNombre: DetalleBuque? = null
+        var mejorPorEslora: Pair<Double, DetalleBuque>? = null
+
+        for (ficha in fichas) {
+            val detalle = parsearFicha(ficha)
+            if (normalizar(nombreDeFicha(ficha) ?: "") != buscado) continue
+
+            when (coincideEslora(esloraReferenciaM, detalle.esloraM)) {
+                true -> {
+                    // Nombre y eslora cuadran: identificacion fiable, se acepta ya.
+                    val diferencia = abs(esloraReferenciaM!! - detalle.esloraM!!)
+                    return detalle.copy(
+                        coincidenciaVerificada = true,
+                        diferenciaEsloraM = diferencia
+                    )
+                }
+                false -> {
+                    // Mismo nombre pero tamano incompatible: se guarda por si
+                    // ningun candidato cuadra, pero no se da por bueno.
+                    val diferencia = abs(esloraReferenciaM!! - detalle.esloraM!!)
+                    if (mejorPorEslora == null || diferencia < mejorPorEslora!!.first) {
+                        mejorPorEslora = diferencia to detalle
+                    }
+                }
+                null -> if (mejorPorNombre == null) mejorPorNombre = detalle
+            }
+        }
+
+        // Sin verificacion posible: se devuelve el mejor candidato advertido
+        // como no verificado, para que la ficha lo indique al usuario.
+        mejorPorNombre?.let { return it.copy(coincidenciaVerificada = false) }
+        mejorPorEslora?.let { (diferencia, detalle) ->
+            return detalle.copy(coincidenciaVerificada = false, diferenciaEsloraM = diferencia)
+        }
+        return DetalleBuque(vesselFinderConsultado = true)
+    }
+
+    /** Nombre del buque segun la ficha: la tabla de particulares o el titulo. */
+    internal fun nombreDeFicha(doc: Document): String? {
+        val datos = PuertoRepository.paresEtiquetaValor(doc)
+        return PuertoRepository.texto(datos["vessel name"])
+            ?: doc.selectFirst("h1")?.text()?.trim()
     }
 
     internal fun parsearFicha(doc: Document): DetalleBuque {

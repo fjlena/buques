@@ -13,7 +13,9 @@ de la Autoridad Portuaria, en cuatro pestañas: **Hoy**, **Entradas**, **Salidas
 | Fotografía, IMO, MMSI, tipo | https://www.vesselfinder.com |
 
 - **Hoy** es la pantalla de inicio: mezcla las entradas y las salidas del día en un único
-  horario cronológico, con la hora a la izquierda y la etiqueta ENTRA o SALE. El primer
+  horario cronológico, con la hora a la izquierda y la etiqueta ENTRA o SALE. Los **fondeos**
+  van en un bloque aparte y plegable al final, porque son espera fuera de la bahía y no
+  ocupación de muelle; cada uno indica el atraque al que irá el buque después. El primer
   movimiento que aún no ha ocurrido se marca como **PRÓXIMO MOVIMIENTO** (recuadrado y con el
   tiempo que falta), los ya pasados quedan atenuados y una línea separa unos de otros. Arriba,
   un resumen de una línea: qué buque es el siguiente y en cuánto tiempo.
@@ -99,10 +101,54 @@ Tecnología: Kotlin, Jetpack Compose (Material 3), corrutinas, **Jsoup** para el
 - **Fotografía, IMO y MMSI**: se consultan en VesselFinder **solo al abrir la ficha** de un
   buque, nunca para la lista entera: serían decenas de peticiones a un servidor ajeno en cada
   actualización. Por eso la foto no aparece en las tarjetas de la lista.
-- Como la ficha del puerto no da el IMO, hay que buscar en VesselFinder por nombre y entrar en
-  el primer resultado. Si el nombre es ambiguo, si el buque no tiene foto subida o si
-  VesselFinder deniega la petición, la ficha lo indica y el resto de datos sigue estando: la
-  aplicación no depende de esa consulta.
-- Los datos son de la Autoridad Portuaria de Santander y las fichas de VesselFinder son de
-  VesselFinder. La aplicación es un visor de uso personal; conviene no bajar el intervalo de
-  actualización a peticiones continuas.
+- Como la ficha del puerto no da el IMO, hay que buscar en VesselFinder por nombre. Buscar solo
+  por nombre confunde homónimos de tamaños muy distintos (el ferry SALAMANCA de 214 m y varios
+  veleros con ese nombre), así que la aplicación **comprueba la eslora** de cada candidato
+  contra la del puerto, con un margen del 8 % o 8 metros, el mayor de los dos. Abre hasta cinco
+  fichas candidatas y se queda con la que cuadra. Si no puede verificar el tamaño, lo dice en
+  la ficha en lugar de dar por bueno el resultado.
+- Si el buque no tiene foto subida o si VesselFinder deniega la petición, la ficha lo indica y
+  el resto de datos sigue estando: la aplicación no depende de esa consulta.
+
+### Atraques repetidos: no son duplicados
+
+La tabla del puerto no lista escalas, lista **atraques**. Un buque que fondea y luego atraca, o
+que cambia de muelle, aparece varias veces el mismo día con el mismo número de escala: la
+escala 1141/2026 del AUTOSKY figura dos veces en RAOS 8, y el LUCIA B aparece en FONDEO y en
+RAOS 3. La aplicación lo interpreta así: dentro de cada escala, el primer atraque es la entrada
+real al puerto y el último desatraque la salida real; los intermedios son maniobras internas y
+se muestran en gris con la etiqueta ATRACA o DESATRACA y la nota "cambio de atraque". En las
+pestañas de entradas y salidas, las tarjetas de una escala repetida avisan de cuántas veces
+figura ese día.
+
+### Fondeos
+
+La web agrupa bajo el muelle FONDEO los buques que esperan fuera de la bahía. La aplicación los
+trata como una categoría propia, con las etiquetas FONDEA y LEVA, y los saca del horario
+principal: un fondeo nunca se marca como próximo movimiento y no cuenta como entrada ni salida
+del puerto, de modo que el atraque posterior conserva su papel de entrada real. El destino se
+deduce buscando en las tres listas otra fila con el mismo número de escala y muelle real; se
+prefiere la posterior al fondeo y, cuando las horas de la web no son coherentes (a veces el
+atraque figura antes que el fondeo), se toma la primera disponible. Si no hay ninguna, la ficha
+dice "Sin asignar todavía" en lugar de inventar un destino.
+## Fuentes y aviso legal
+
+La aplicación incluye un botón de información (icono ⓘ en la barra superior) que muestra el
+origen de los datos: **Autoridad Portuaria de Santander – Puerto de Santander**, con su
+logotipo y enlaces a las tres páginas consultadas, a `puertosantander.es` y a su aviso legal;
+y **VesselFinder** para la fotografía, el IMO, el MMSI y los datos AIS, con enlace a sus
+condiciones de uso. Indica también la versión y la hora en que se consultaron los datos, que es
+lo que suelen exigir las condiciones de reutilización de información del sector público
+(Ley 37/2007): citar la fuente y la fecha, y no desnaturalizar el contenido.
+
+El mismo diálogo advierte de que se trata de una aplicación personal, sin carácter oficial y sin
+relación con ninguna de las dos entidades, y de que los datos son informativos y no deben usarse
+para la navegación ni para decisiones operativas. La pantalla principal lleva además una línea
+de atribución al pie, visible sin abrir el diálogo.
+
+El logotipo **no se incluye en el APK**: se carga desde la propia web del puerto, de modo que se
+muestra como atribución a la fuente sin redistribuir la marca. Si no carga, queda el nombre en
+texto, que es lo que de verdad cumple la función de citar.
+
+Conviene no bajar el intervalo de actualización a peticiones continuas: la aplicación ya pide
+cada ficha técnica una sola vez por buque y limita las peticiones simultáneas.

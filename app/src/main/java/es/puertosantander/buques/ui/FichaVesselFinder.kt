@@ -67,6 +67,8 @@ import es.puertosantander.buques.data.DetalleBuque
 fun FichaVesselFinder(
     buque: Buque,
     detalle: DetalleBuque?,
+    /** Si el buque esta fondeado, el atraque de la misma escala al que ira. */
+    atraquePrevisto: Buque? = null,
     onCerrar: () -> Unit
 ) {
     val context = LocalContext.current
@@ -129,7 +131,8 @@ fun FichaVesselFinder(
             if (!verWeb) {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     FotoBuque(detalle)
-                    DatosBuque(buque, detalle)
+                    AvisoCoincidencia(detalle)
+                    DatosBuque(buque, detalle, atraquePrevisto)
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -183,6 +186,38 @@ fun FichaVesselFinder(
                 )
             }
         }
+    }
+}
+
+/**
+ * Advierte cuando la ficha de VesselFinder se ha localizado solo por el nombre.
+ * Hay homonimos de tamanos muy distintos (el ferry SALAMANCA y varios veleros),
+ * asi que si no se ha podido comprobar la eslora conviene decirlo.
+ */
+@Composable
+private fun AvisoCoincidencia(detalle: DetalleBuque?) {
+    if (detalle == null || !detalle.vesselFinderConsultado) return
+    if (detalle.imo == null) return
+
+    val verificada = detalle.coincidenciaVerificada
+    Surface(
+        color = if (verificada) MaterialTheme.colorScheme.surfaceVariant
+        else MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = if (verificada) MaterialTheme.colorScheme.onSurfaceVariant
+        else MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()
+    ) {
+        Text(
+            if (verificada)
+                "Identificación verificada: la eslora coincide con la del puerto" +
+                    (detalle.diferenciaEsloraM?.let { String.format(java.util.Locale("es", "ES"), " (%.1f m de diferencia)", it) } ?: "")
+            else
+                "Atención: ficha localizada solo por el nombre, sin poder comprobar la eslora. " +
+                    "Puede corresponder a otro buque homónimo.",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(10.dp)
+        )
     }
 }
 
@@ -260,7 +295,7 @@ private fun SinFoto(mensaje: String) {
 
 /** Datos tecnicos y de la escala, en dos columnas. */
 @Composable
-private fun DatosBuque(buque: Buque, detalle: DetalleBuque?) {
+private fun DatosBuque(buque: Buque, detalle: DetalleBuque?, atraquePrevisto: Buque?) {
     val filas = buildList {
         esloraTexto(detalle)?.let { add("Eslora" to it) }
         detalle?.mangaM?.let { add("Manga" to String.format(java.util.Locale("es", "ES"), "%.1f m", it)) }
@@ -272,9 +307,21 @@ private fun DatosBuque(buque: Buque, detalle: DetalleBuque?) {
         if (buque.bandera.isNotEmpty()) {
             add("Bandera" to "${banderaEmoji(buque.bandera)} ${buque.bandera}")
         }
-        if (buque.muelle.isNotEmpty()) add("Muelle" to buque.muelle)
-        if (buque.atraqueInicioTexto.isNotEmpty()) add("Atraque" to buque.atraqueInicioTexto)
-        if (buque.atraqueFinTexto.isNotEmpty()) add("Salida prevista" to buque.atraqueFinTexto)
+        if (buque.esFondeo) {
+            add("Situación" to "Fondeado, fuera de la bahía")
+            add(
+                "Atraque previsto" to (
+                    atraquePrevisto?.let { "${it.muelle} · ${it.atraqueInicioTexto}" }
+                        ?: "Sin asignar todavía"
+                    )
+            )
+            if (buque.atraqueInicioTexto.isNotEmpty()) add("Fondea" to buque.atraqueInicioTexto)
+            if (buque.atraqueFinTexto.isNotEmpty()) add("Leva anclas" to buque.atraqueFinTexto)
+        } else {
+            if (buque.muelle.isNotEmpty()) add("Muelle" to buque.muelle)
+            if (buque.atraqueInicioTexto.isNotEmpty()) add("Atraque" to buque.atraqueInicioTexto)
+            if (buque.atraqueFinTexto.isNotEmpty()) add("Salida prevista" to buque.atraqueFinTexto)
+        }
         buque.procedencia.takeIf { it.isNotEmpty() }?.let { add("Procedencia" to it) }
         detalle?.destino?.let { add("Destino" to it) }
         detalle?.tipoMercancia?.let { add("Mercancía" to it) }
@@ -294,7 +341,7 @@ private fun DatosBuque(buque: Buque, detalle: DetalleBuque?) {
                 Text(
                     valor,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (etiqueta == "Eslora" || etiqueta == "Salida prevista")
+                    fontWeight = if (etiqueta in setOf("Eslora", "Salida prevista", "Atraque previsto"))
                         FontWeight.SemiBold else FontWeight.Normal
                 )
             }

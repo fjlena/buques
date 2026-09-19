@@ -3,6 +3,7 @@ package es.puertosantander.buques
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -19,15 +21,20 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsBoat
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -44,7 +51,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,6 +66,7 @@ import es.puertosantander.buques.data.Lista
 import es.puertosantander.buques.data.TipoMovimiento
 import es.puertosantander.buques.ui.BuqueCard
 import es.puertosantander.buques.ui.BuquesTheme
+import es.puertosantander.buques.ui.DialogoInformacion
 import es.puertosantander.buques.ui.FichaVesselFinder
 import es.puertosantander.buques.ui.MovimientoCard
 import es.puertosantander.buques.ui.tiempoRelativo
@@ -95,6 +105,15 @@ private enum class Pantalla(val titulo: String) {
 fun App(vm: BuquesViewModel = viewModel()) {
     val estado by vm.estado.collectAsState()
     var seleccionado by remember { mutableStateOf<Buque?>(null) }
+    var verInformacion by remember { mutableStateOf(false) }
+
+    if (verInformacion) {
+        DialogoInformacion(
+            version = BuildConfig.VERSION_NAME,
+            ultimaActualizacion = estado.ultimaActualizacion,
+            onCerrar = { verInformacion = false }
+        )
+    }
 
     val buque = seleccionado
     if (buque != null) {
@@ -103,6 +122,7 @@ fun App(vm: BuquesViewModel = viewModel()) {
         FichaVesselFinder(
             buque = buque,
             detalle = estado.detalle(buque),
+            atraquePrevisto = estado.atraqueDeEscala(buque),
             onCerrar = { seleccionado = null }
         )
         return
@@ -129,9 +149,15 @@ fun App(vm: BuquesViewModel = viewModel()) {
                     actions = {
                         if (estado.cargando) {
                             CircularProgressIndicator(
-                                modifier = Modifier.padding(end = 16.dp).height(22.dp),
+                                modifier = Modifier.padding(end = 8.dp).height(22.dp),
                                 strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                        IconButton(onClick = { verInformacion = true }) {
+                            Icon(
+                                Icons.Outlined.Info,
+                                contentDescription = "Origen de los datos"
                             )
                         }
                     },
@@ -201,12 +227,14 @@ fun App(vm: BuquesViewModel = viewModel()) {
 @Composable
 private fun PanelPrincipal(estado: EstadoApp, onBuque: (Buque) -> Unit) {
     val ahora = LocalDateTime.now()
-    val movimientos = estado.movimientos
+    val enMuelle = estado.movimientosEnMuelle
+    val enFondeo = estado.movimientosEnFondeo
     val proximo = estado.proximo(ahora)
+    var mostrarFondeos by remember { mutableStateOf(true) }
 
     val errores = listOf(Lista.ENTRADAS, Lista.SALIDAS).mapNotNull { estado.de(it).error }
 
-    if (movimientos.isEmpty()) {
+    if (enMuelle.isEmpty() && enFondeo.isEmpty()) {
         Mensaje(
             if (errores.isNotEmpty()) "No se han podido cargar los datos"
             else "Sin movimientos registrados hoy",
@@ -223,18 +251,16 @@ private fun PanelPrincipal(estado: EstadoApp, onBuque: (Buque) -> Unit) {
             Cabecera(proximo?.let {
                 val cual = if (it.tipo == TipoMovimiento.ENTRADA) "Entra" else "Sale"
                 "$cual ${it.buque.nombre} · ${tiempoRelativo(it.momento!!, ahora)}"
-            } ?: "No quedan movimientos previstos para hoy")
+            } ?: "No quedan movimientos de muelle previstos para hoy")
         }
 
-        itemsIndexed(movimientos) { indice, movimiento ->
+        // --- Movimientos en los muelles -------------------------------------
+        itemsIndexed(enMuelle) { indice, movimiento ->
             val pasado = movimiento.momento?.isBefore(ahora) == true
-            val esProximo = proximo != null &&
-                movimiento.buque.registro == proximo.buque.registro &&
-                movimiento.tipo == proximo.tipo &&
-                movimiento.horaTexto == proximo.horaTexto
+            val esProximo = proximo != null && mismoMovimiento(movimiento, proximo)
 
             // Separador entre lo ya ocurrido y lo que esta por venir.
-            val anterior = movimientos.getOrNull(indice - 1)
+            val anterior = enMuelle.getOrNull(indice - 1)
             if (esProximo && anterior?.momento?.isBefore(ahora) == true) {
                 HorizontalDivider(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
@@ -250,6 +276,87 @@ private fun PanelPrincipal(estado: EstadoApp, onBuque: (Buque) -> Unit) {
                     onClick = onBuque
                 )
             }
+        }
+
+        // --- Fondeadero, fuera de la bahia ----------------------------------
+        if (enFondeo.isNotEmpty()) {
+            item {
+                SeccionFondeos(
+                    numero = enFondeo.size,
+                    desplegada = mostrarFondeos,
+                    onAlternar = { mostrarFondeos = !mostrarFondeos }
+                )
+            }
+            if (mostrarFondeos) {
+                items(enFondeo) { movimiento ->
+                    val pasado = movimiento.momento?.isBefore(ahora) == true
+                    Box(Modifier.alpha(if (pasado) 0.55f else 1f)) {
+                        MovimientoCard(
+                            movimiento = movimiento,
+                            detalle = estado.detalle(movimiento.buque),
+                            esProximo = false,
+                            yaPasado = pasado,
+                            destinoAtraque = estado.atraqueDeEscala(movimiento.buque)?.muelle,
+                            onClick = onBuque
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Text(
+                "Datos: Autoridad Portuaria de Santander · puertosantander.es",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            )
+        }
+    }
+}
+
+/** Dos movimientos de la misma escala, tipo y hora son el mismo movimiento. */
+private fun mismoMovimiento(a: es.puertosantander.buques.data.Movimiento, b: es.puertosantander.buques.data.Movimiento) =
+    a.buque.escala == b.buque.escala &&
+        a.tipo == b.tipo &&
+        a.horaTexto == b.horaTexto &&
+        a.buque.muelle == b.buque.muelle
+
+/** Cabecera plegable del bloque de fondeos. */
+@Composable
+private fun SeccionFondeos(numero: Int, desplegada: Boolean, onAlternar: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onAlternar() }
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    "FONDEADERO · $numero ${if (numero == 1) "movimiento" else "movimientos"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Espera fuera de la bahía, sin ocupar muelle",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                if (desplegada) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (desplegada) "Ocultar fondeos" else "Mostrar fondeos"
+            )
         }
     }
 }
@@ -300,11 +407,16 @@ private fun PanelLista(
                     )
                 }
             }
+            val atraquesPorEscala = estadoLista.buques
+                .groupingBy { it.registro.ifBlank { it.clave } }
+                .eachCount()
+
             items(estadoLista.buques) { buque ->
                 BuqueCard(
                     buque = buque,
                     lista = lista,
                     detalle = estado.detalle(buque),
+                    atraquesDeLaEscala = atraquesPorEscala[buque.registro.ifBlank { buque.clave }] ?: 1,
                     onClick = onBuque
                 )
             }

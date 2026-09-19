@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import es.puertosantander.buques.data.Buque
+import es.puertosantander.buques.data.ClaseMovimiento
 import es.puertosantander.buques.data.DetalleBuque
 import es.puertosantander.buques.data.Lista
 import es.puertosantander.buques.data.Movimiento
@@ -100,11 +101,21 @@ fun MovimientoCard(
     detalle: DetalleBuque?,
     esProximo: Boolean,
     yaPasado: Boolean,
+    /** Muelle al que va el buque fondeado, si se conoce. */
+    destinoAtraque: String? = null,
     onClick: (Buque) -> Unit
 ) {
     val entrada = movimiento.tipo == TipoMovimiento.ENTRADA
-    val colorTipo =
-        if (entrada) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+    val maniobra = movimiento.clase.esManiobraInterna
+    val fondeo = movimiento.clase.esFondeo
+    val colorTipo = when {
+        // Los cambios de muelle no compiten visualmente con las entradas y
+        // salidas reales del puerto: van en gris.
+        maniobra -> MaterialTheme.colorScheme.onSurfaceVariant
+        fondeo -> MaterialTheme.colorScheme.secondary
+        entrada -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.tertiary
+    }
 
     Card(
         modifier = Modifier
@@ -140,10 +151,7 @@ fun MovimientoCard(
                         color = if (yaPasado) MaterialTheme.colorScheme.onSurfaceVariant
                         else MaterialTheme.colorScheme.onSurface
                     )
-                    Etiqueta(
-                        texto = if (entrada) "ENTRA" else "SALE",
-                        color = colorTipo
-                    )
+                    Etiqueta(texto = movimiento.clase.etiqueta, color = colorTipo)
                 }
 
                 Spacer(Modifier.width(12.dp))
@@ -165,15 +173,30 @@ fun MovimientoCard(
                         )
                     }
                     val detalles = listOfNotNull(
-                        movimiento.buque.muelle.ifBlank { null },
+                        if (fondeo) null else movimiento.buque.muelle.ifBlank { null },
                         esloraTexto(detalle),
-                        movimiento.buque.procedencia.ifBlank { null }
+                        if (maniobra) null else movimiento.buque.procedencia.ifBlank { null }
                     )
                     if (detalles.isNotEmpty()) {
                         Text(
                             detalles.joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (maniobra) {
+                        Text(
+                            "${movimiento.clase.descripcion} · escala ${movimiento.buque.registro}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (fondeo) {
+                        Text(
+                            destinoAtraque?.let { "Después atraca en $it" }
+                                ?: "Atraque aún sin asignar",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     }
                     movimiento.momento?.let {
@@ -222,6 +245,8 @@ fun BuqueCard(
     buque: Buque,
     lista: Lista,
     detalle: DetalleBuque?,
+    /** Veces que aparece esta misma escala en la lista (atraques del dia). */
+    atraquesDeLaEscala: Int = 1,
     onClick: (Buque) -> Unit
 ) {
     Card(
@@ -295,6 +320,14 @@ fun BuqueCard(
             if (buque.muelle.isNotEmpty()) DatoFila(Icons.Default.Anchor, "Muelle", buque.muelle)
             if (buque.consignatario.isNotEmpty()) {
                 DatoFila(Icons.Default.Business, "Consignatario", buque.consignatario)
+            }
+            if (atraquesDeLaEscala > 1) {
+                Text(
+                    "Esta escala figura $atraquesDeLaEscala veces hoy: el buque cambia de atraque",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
             }
             if (buque.registro.isNotEmpty()) {
                 Text(

@@ -42,16 +42,50 @@ data class EstadoApp(
             val salidas = de(Lista.SALIDAS).buques.map {
                 Movimiento(it, TipoMovimiento.SALIDA, it.atraqueFin)
             }
-            return (entradas + salidas)
+            val todos = (entradas + salidas)
                 .sortedWith(compareBy(nullsLast<LocalDateTime>()) { it.momento })
+            return Movimiento.clasificar(todos)
         }
 
+    /** Movimientos en muelle: entradas, salidas y cambios de atraque. */
+    val movimientosEnMuelle: List<Movimiento>
+        get() = movimientos.filter { !it.clase.esFondeo }
+
+    /** Movimientos en el fondeadero, fuera de la bahia. */
+    val movimientosEnFondeo: List<Movimiento>
+        get() = movimientos.filter { it.clase.esFondeo }
+
     /**
-     * Primer movimiento cuya hora aun no ha pasado. Es el que la pantalla
-     * principal marca como proximo.
+     * Primer movimiento de muelle cuya hora aun no ha pasado: es el que la
+     * pantalla principal destaca. Los fondeos no compiten por ese puesto,
+     * porque ocurren fuera de la bahia y no son lo que se ve desde el puerto.
      */
     fun proximo(ahora: LocalDateTime = LocalDateTime.now()): Movimiento? =
-        movimientos.firstOrNull { m -> m.momento?.isAfter(ahora) == true }
+        movimientosEnMuelle.firstOrNull { m -> m.momento?.isAfter(ahora) == true }
+
+    fun proximoFondeo(ahora: LocalDateTime = LocalDateTime.now()): Movimiento? =
+        movimientosEnFondeo.firstOrNull { m -> m.momento?.isAfter(ahora) == true }
+
+    /**
+     * Atraque al que va un buque fondeado: se busca en las tres listas otra
+     * fila de la misma escala con muelle real. Se prefiere la posterior al
+     * fondeo; si las horas de la web no son coherentes (a veces el atraque
+     * figura antes que el fondeo), se toma la primera que haya.
+     */
+    fun atraqueDeEscala(buque: Buque): Buque? {
+        if (!buque.esFondeo) return null
+        val enMuelle = Lista.entries
+            .flatMap { de(it).buques }
+            .filter { !it.esFondeo && it.escala == buque.escala && it.atraqueInicio != null }
+            .distinctBy { it.muelle + it.atraqueInicioTexto }
+        if (enMuelle.isEmpty()) return null
+
+        val fondeoInicio = buque.atraqueInicio
+        val posteriores = if (fondeoInicio == null) enMuelle
+        else enMuelle.filter { !it.atraqueInicio!!.isBefore(fondeoInicio) }
+
+        return (posteriores.ifEmpty { enMuelle }).minByOrNull { it.atraqueInicio!! }
+    }
 }
 
 class BuquesViewModel : ViewModel() {
@@ -128,13 +162,28 @@ class BuquesViewModel : ViewModel() {
     /**
      * Consulta VesselFinder para un buque concreto (foto, IMO, MMSI, tipo).
      * Se llama al abrir su ficha, no al cargar las listas.
+     *
+     * Antes de buscar se asegura de tener la eslora del puerto: es la que
+     * permite descartar homonimos (el ferry SALAMANCA de 214 m frente a los
+     * veleros del mismo nombre). Si no hay eslora de referencia se busca
+     * igualmente, pero el resultado queda marcado como no verificado.
      */
     fun cargarVesselFinder(buque: Buque) {
         val actual = _estado.value.detalles[buque.clave]
         if (actual?.vesselFinderConsultado == true) return
 
         viewModelScope.launch {
-            val detalle = VesselFinderRepository.cargar(buque.nombre)
+            var eslora = actual?.esloraM
+            if (eslora == null && buque.urlPuerto != null) {
+                val delPuerto = semaforo.withPermit {
+                    runCatching { PuertoRepository.cargarDetalle(buque.urlPuerto) }.getOrNull()
+                }
+                if (delPuerto != null) {
+                    fusionar(buque.clave, delPuerto)
+                    eslora = delPuerto.esloraM
+                }
+            }
+            val detalle = VesselFinderRepository.cargar(buque.nombre, eslora)
             fusionar(buque.clave, detalle)
         }
     }

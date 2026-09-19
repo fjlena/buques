@@ -34,6 +34,16 @@ data class Buque(
     /** Clave con la que se cachean los datos tecnicos: son del buque, no de la escala. */
     val clave: String get() = nombre.uppercase()
 
+    /** Identificador de la escala; agrupa los atraques de una misma estancia. */
+    val escala: String get() = registro.ifBlank { clave }
+
+    /**
+     * El fondeo no es un atraque: el buque espera fuera de la bahia. La web del
+     * puerto lo agrupa bajo el muelle "FONDEO".
+     */
+    val esFondeo: Boolean
+        get() = muelle.uppercase().contains("FONDEO")
+
     /** Busqueda en VesselFinder por nombre, para cuando no se conoce el IMO. */
     val urlVesselFinder: String
         get() = "https://www.vesselfinder.com/vessels?name=" +
@@ -68,7 +78,15 @@ data class DetalleBuque(
     val anioConstruccion: String? = null,
     val urlFoto: String? = null,
     /** true cuando ya se ha intentado consultar VesselFinder (con exito o sin el). */
-    val vesselFinderConsultado: Boolean = false
+    val vesselFinderConsultado: Boolean = false,
+    /**
+     * true cuando el buque de VesselFinder se ha confirmado comparando su
+     * eslora con la que publica el puerto. false = coincide el nombre pero no
+     * se ha podido verificar el tamano, asi que puede ser un homonimo.
+     */
+    val coincidenciaVerificada: Boolean = false,
+    /** Diferencia de eslora entre las dos fuentes, en metros. */
+    val diferenciaEsloraM: Double? = null
 ) {
     /** Ficha de VesselFinder por IMO, mas precisa que la busqueda por nombre. */
     val urlFichaImo: String? get() = imo?.let { "https://www.vesselfinder.com/vessels/details/$it" }
@@ -84,7 +102,9 @@ data class DetalleBuque(
         tipoBuque = tipoBuque ?: otro.tipoBuque,
         anioConstruccion = anioConstruccion ?: otro.anioConstruccion,
         urlFoto = urlFoto ?: otro.urlFoto,
-        vesselFinderConsultado = vesselFinderConsultado || otro.vesselFinderConsultado
+        vesselFinderConsultado = vesselFinderConsultado || otro.vesselFinderConsultado,
+        coincidenciaVerificada = coincidenciaVerificada || otro.coincidenciaVerificada,
+        diferenciaEsloraM = diferenciaEsloraM ?: otro.diferenciaEsloraM
     )
 }
 
@@ -103,15 +123,85 @@ data class ResultadoLista(
 enum class TipoMovimiento(val etiqueta: String) { ENTRADA("Entrada"), SALIDA("Salida") }
 
 /**
+ * La tabla del puerto no lista escalas sino ATRAQUES: un buque que fondea y
+ * luego atraca, o que cambia de muelle, aparece varias veces el mismo dia con
+ * el mismo numero de escala. Distinguir la entrada o salida real del puerto de
+ * una maniobra interna evita que parezcan datos duplicados o erroneos.
+ */
+enum class ClaseMovimiento(val etiqueta: String, val descripcion: String) {
+    ENTRADA_PUERTO("ENTRA", "Entrada al puerto"),
+    ATRAQUE("ATRACA", "Cambio de atraque"),
+    DESATRAQUE("DESATRACA", "Cambio de atraque"),
+    SALIDA_PUERTO("SALE", "Salida del puerto"),
+    FONDEA("FONDEA", "Llega al fondeadero"),
+    LEVA("LEVA", "Abandona el fondeadero");
+
+    val esManiobraInterna: Boolean get() = this == ATRAQUE || this == DESATRAQUE
+
+    /** Movimientos en el fondeadero, fuera de la bahia. */
+    val esFondeo: Boolean get() = this == FONDEA || this == LEVA
+}
+
+/**
  * Un movimiento del dia: la entrada o la salida de un buque, con su hora.
  * Es la unidad de la pantalla principal, que mezcla ambas cronologicamente.
  */
 data class Movimiento(
     val buque: Buque,
     val tipo: TipoMovimiento,
-    val momento: LocalDateTime?
+    val momento: LocalDateTime?,
+    val clase: ClaseMovimiento = ClaseMovimiento.ENTRADA_PUERTO,
+    /** Numero de atraques que tiene hoy esta misma escala. */
+    val atraquesDeLaEscala: Int = 1
 ) {
     val horaTexto: String
         get() = if (tipo == TipoMovimiento.ENTRADA) buque.atraqueInicioTexto
         else buque.atraqueFinTexto
+
+    companion object {
+        /**
+         * Clasifica los movimientos de una jornada: dentro de cada escala
+         * (mismo numero de registro), el primer atraque es la entrada real al
+         * puerto y el ultimo desatraque la salida real; los intermedios son
+         * cambios de muelle.
+         */
+        fun clasificar(movimientos: List<Movimiento>): List<Movimiento> {
+            val porEscala = movimientos.groupBy { it.buque.escala }
+            val clasificados = mutableMapOf<Movimiento, Movimiento>()
+
+            for ((_, grupo) in porEscala) {
+                // Los fondeos van por su cuenta: ni son entrada al puerto ni
+                // salida de el, sino espera en el exterior.
+                grupo.filter { it.buque.esFondeo }.forEach { m ->
+                    clasificados[m] = m.copy(
+                        clase = if (m.tipo == TipoMovimiento.ENTRADA) ClaseMovimiento.FONDEA
+                        else ClaseMovimiento.LEVA,
+                        atraquesDeLaEscala = grupo.count { !it.buque.esFondeo }
+                    )
+                }
+
+                val enMuelle = grupo.filter { !it.buque.esFondeo }
+                val entradas = enMuelle.filter { it.tipo == TipoMovimiento.ENTRADA }
+                    .sortedWith(compareBy(nullsLast<LocalDateTime>()) { it.momento })
+                val salidas = enMuelle.filter { it.tipo == TipoMovimiento.SALIDA }
+                    .sortedWith(compareBy(nullsLast<LocalDateTime>()) { it.momento })
+
+                entradas.forEachIndexed { i, m ->
+                    clasificados[m] = m.copy(
+                        clase = if (i == 0) ClaseMovimiento.ENTRADA_PUERTO
+                        else ClaseMovimiento.ATRAQUE,
+                        atraquesDeLaEscala = enMuelle.size
+                    )
+                }
+                salidas.forEachIndexed { i, m ->
+                    clasificados[m] = m.copy(
+                        clase = if (i == salidas.lastIndex) ClaseMovimiento.SALIDA_PUERTO
+                        else ClaseMovimiento.DESATRAQUE,
+                        atraquesDeLaEscala = enMuelle.size
+                    )
+                }
+            }
+            return movimientos.map { clasificados[it] ?: it }
+        }
+    }
 }
