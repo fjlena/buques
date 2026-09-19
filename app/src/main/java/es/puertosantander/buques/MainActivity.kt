@@ -119,12 +119,11 @@ fun App(vm: BuquesViewModel = viewModel()) {
                     title = {
                         Column {
                             Text("Buques · Puerto de Santander", fontWeight = FontWeight.SemiBold)
-                            estado.ultimaActualizacion?.let {
-                                Text(
-                                    "Actualizado: $it",
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
+                            Text(
+                                "v${BuildConfig.VERSION_NAME}" +
+                                    (estado.ultimaActualizacion?.let { " · $it" } ?: ""),
+                                style = MaterialTheme.typography.labelSmall
+                            )
                         }
                     },
                     actions = {

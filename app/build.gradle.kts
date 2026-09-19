@@ -12,8 +12,8 @@ android {
         applicationId = "es.puertosantander.buques"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     buildTypes {
@@ -35,6 +35,8 @@ android {
 
     buildFeatures {
         compose = true
+        // Necesario desde AGP 8 para poder leer BuildConfig.VERSION_NAME.
+        buildConfig = true
     }
 
     packaging {
