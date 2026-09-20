@@ -314,6 +314,20 @@ private fun PanelPrincipal(estado: EstadoApp, onBuque: (Buque) -> Unit) {
     }
 }
 
+/** Resumen de una linea con el proximo movimiento de muelle. */
+@Composable
+private fun Cabecera(texto: String) {
+    Text(
+        texto,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    )
+}
+
 /** Dos movimientos de la misma escala, tipo y hora son el mismo movimiento. */
 private fun mismoMovimiento(a: es.puertosantander.buques.data.Movimiento, b: es.puertosantander.buques.data.Movimiento) =
     a.buque.escala == b.buque.escala &&
