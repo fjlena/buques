@@ -4,6 +4,9 @@ import es.puertosantander.buques.data.PuertoRepository
 import es.puertosantander.buques.data.VesselFinderRepository
 import es.puertosantander.buques.data.Buque
 import es.puertosantander.buques.data.ClaseMovimiento
+import es.puertosantander.buques.data.EstadoApp
+import es.puertosantander.buques.data.EstadoLista
+import es.puertosantander.buques.data.Lista
 import es.puertosantander.buques.data.Movimiento
 import es.puertosantander.buques.data.TipoMovimiento
 import org.junit.Assert.assertFalse
@@ -260,5 +263,40 @@ class ParseoTest {
         assertTrue(espera.esFondeo)
         assertFalse(atraque.esFondeo)
         assertEquals(espera.escala, atraque.escala)
+    }
+
+    @Test
+    fun encuentraElAtraqueAlQueVaUnBuqueFondeado() {
+        val espera = fondeo("1181/2026", "19/09/2026 - 22:15", "21/09/2026 - 16:00")
+        val destino = buque("1181/2026", "RAOS 5", "21/09/2026 - 17:00", "22/09/2026 - 20:00")
+
+        val estado = EstadoApp(
+            listas = mapOf(
+                Lista.ENTRADAS to EstadoLista(buques = listOf(espera, destino)),
+                Lista.SALIDAS to EstadoLista(),
+                Lista.EN_PUERTO to EstadoLista(buques = listOf(espera))
+            )
+        )
+
+        assertEquals("RAOS 5", estado.atraqueDeEscala(espera)?.muelle)
+        // Un buque atracado no tiene "atraque previsto": ya esta en el suyo.
+        assertEquals(null, estado.atraqueDeEscala(destino))
+
+        // El fondeo no compite por ser el proximo movimiento de muelle.
+        assertTrue(estado.movimientosEnFondeo.isNotEmpty())
+        assertTrue(estado.movimientosEnMuelle.none { it.buque.esFondeo })
+    }
+
+    @Test
+    fun elAtraqueAnteriorAlFondeoSirveDeRespaldo() {
+        // Caso real: el LUCIA B tiene el fondeo a las 08:00 y el atraque en
+        // RAOS 3 a las 03:50, antes. La web no siempre es coherente.
+        val espera = fondeo("1106/2026", "19/09/2026 - 08:00", "19/09/2026 - 09:00")
+        val antes = buque("1106/2026", "RAOS 3", "19/09/2026 - 03:50", "19/09/2026 - 21:35")
+
+        val estado = EstadoApp(
+            listas = mapOf(Lista.ENTRADAS to EstadoLista(buques = listOf(espera, antes)))
+        )
+        assertEquals("RAOS 3", estado.atraqueDeEscala(espera)?.muelle)
     }
 }

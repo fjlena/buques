@@ -247,6 +247,10 @@ fun BuqueCard(
     detalle: DetalleBuque?,
     /** Veces que aparece esta misma escala en la lista (atraques del dia). */
     atraquesDeLaEscala: Int = 1,
+    /** Muelle al que ira el buque fondeado, si se conoce. */
+    destinoAtraque: String? = null,
+    /** Se oculta cuando la lista ya viene agrupada por atraque. */
+    mostrarMuelle: Boolean = true,
     onClick: (Buque) -> Unit
 ) {
     Card(
@@ -293,7 +297,9 @@ fun BuqueCard(
 
             Spacer(Modifier.height(10.dp))
 
-            if (lista == Lista.EN_PUERTO) {
+            if (buque.esFondeo) {
+                FondeoDestacado(buque, destinoAtraque)
+            } else if (lista == Lista.EN_PUERTO) {
                 SalidaPrevista(buque)
                 Spacer(Modifier.height(8.dp))
                 DatoFila(Icons.Default.Login, "Atracó", fechaCorta(buque.atraqueInicioTexto))
@@ -317,7 +323,9 @@ fun BuqueCard(
                     if (gt != null) "$eslora · $gt" else eslora
                 )
             }
-            if (buque.muelle.isNotEmpty()) DatoFila(Icons.Default.Anchor, "Muelle", buque.muelle)
+            if (mostrarMuelle && !buque.esFondeo && buque.muelle.isNotEmpty()) {
+                DatoFila(Icons.Default.Anchor, "Muelle", buque.muelle)
+            }
             if (buque.consignatario.isNotEmpty()) {
                 DatoFila(Icons.Default.Business, "Consignatario", buque.consignatario)
             }
@@ -337,6 +345,46 @@ fun BuqueCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Bloque del fondeadero: horas de fondeo y, sobre todo, el atraque al que va
+ * el buque, que es lo que interesa saber de un buque que espera fuera.
+ */
+@Composable
+private fun FondeoDestacado(buque: Buque, destinoAtraque: String?) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text("EN FONDEO, FUERA DE LA BAHÍA", style = MaterialTheme.typography.labelSmall)
+            Text(
+                destinoAtraque?.let { "Atracará en $it" } ?: "Atraque sin asignar todavía",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                if (buque.atraqueInicioTexto.isNotEmpty()) {
+                    Text(
+                        "Fondea: ${fechaCorta(buque.atraqueInicioTexto)}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                if (buque.atraqueFinTexto.isNotEmpty()) {
+                    Text(
+                        "Leva: ${fechaCorta(buque.atraqueFinTexto)}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
             }
         }
     }

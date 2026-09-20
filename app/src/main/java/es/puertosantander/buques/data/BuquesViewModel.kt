@@ -197,11 +197,13 @@ class BuquesViewModel : ViewModel() {
     }
 
     /**
-     * En "En puerto" y en salidas lo importante es la hora de salida; en
-     * entradas, la de atraque. Siempre ascendente: primero lo que ocurre antes.
+     * Entradas y salidas se ordenan por la hora del movimiento, ascendente.
+     * "En puerto" conserva el orden de la web, que viene agrupado por atraque:
+     * es la forma en que se lee el ocupado de los muelles.
      */
     private fun ordenar(lista: Lista, buques: List<Buque>): List<Buque> = when (lista) {
-        Lista.EN_PUERTO, Lista.SALIDAS ->
+        Lista.EN_PUERTO -> buques
+        Lista.SALIDAS ->
             buques.sortedWith(compareBy(nullsLast<LocalDateTime>()) { it.atraqueFin })
         Lista.ENTRADAS ->
             buques.sortedWith(compareBy(nullsLast<LocalDateTime>()) { it.atraqueInicio })

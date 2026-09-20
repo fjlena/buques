@@ -293,6 +293,20 @@ private fun SinFoto(mensaje: String) {
     }
 }
 
+/**
+ * Numero de escala con el atraque al lado: el muelle en el que esta el buque o,
+ * si espera fondeado, el atraque al que ira. Es lo que se quiere saber de un
+ * golpe de vista al abrir la ficha.
+ */
+private fun escalaConAtraque(buque: Buque, atraquePrevisto: Buque?): String {
+    val registro = buque.registro.ifBlank { "sin número" }
+    val atraque = when {
+        !buque.esFondeo -> buque.muelle.ifBlank { null }
+        else -> atraquePrevisto?.muelle?.let { "fondeado → $it" } ?: "fondeado, atraque sin asignar"
+    }
+    return if (atraque != null) "$registro · $atraque" else registro
+}
+
 /** Datos tecnicos y de la escala, en dos columnas. */
 @Composable
 private fun DatosBuque(buque: Buque, detalle: DetalleBuque?, atraquePrevisto: Buque?) {
@@ -309,16 +323,11 @@ private fun DatosBuque(buque: Buque, detalle: DetalleBuque?, atraquePrevisto: Bu
         }
         if (buque.esFondeo) {
             add("Situación" to "Fondeado, fuera de la bahía")
-            add(
-                "Atraque previsto" to (
-                    atraquePrevisto?.let { "${it.muelle} · ${it.atraqueInicioTexto}" }
-                        ?: "Sin asignar todavía"
-                    )
-            )
             if (buque.atraqueInicioTexto.isNotEmpty()) add("Fondea" to buque.atraqueInicioTexto)
             if (buque.atraqueFinTexto.isNotEmpty()) add("Leva anclas" to buque.atraqueFinTexto)
+            atraquePrevisto?.atraqueInicioTexto?.takeIf { it.isNotEmpty() }
+                ?.let { add("Atraque previsto" to it) }
         } else {
-            if (buque.muelle.isNotEmpty()) add("Muelle" to buque.muelle)
             if (buque.atraqueInicioTexto.isNotEmpty()) add("Atraque" to buque.atraqueInicioTexto)
             if (buque.atraqueFinTexto.isNotEmpty()) add("Salida prevista" to buque.atraqueFinTexto)
         }
@@ -326,7 +335,7 @@ private fun DatosBuque(buque: Buque, detalle: DetalleBuque?, atraquePrevisto: Bu
         detalle?.destino?.let { add("Destino" to it) }
         detalle?.tipoMercancia?.let { add("Mercancía" to it) }
         if (buque.consignatario.isNotEmpty()) add("Consignatario" to buque.consignatario)
-        if (buque.registro.isNotEmpty()) add("Escala" to buque.registro)
+        add("Escala" to escalaConAtraque(buque, atraquePrevisto))
     }
 
     Column(Modifier.padding(horizontal = 16.dp)) {
@@ -341,7 +350,7 @@ private fun DatosBuque(buque: Buque, detalle: DetalleBuque?, atraquePrevisto: Bu
                 Text(
                     valor,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (etiqueta in setOf("Eslora", "Salida prevista", "Atraque previsto"))
+                    fontWeight = if (etiqueta in setOf("Eslora", "Salida prevista", "Escala"))
                         FontWeight.SemiBold else FontWeight.Normal
                 )
             }

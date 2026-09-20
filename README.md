@@ -5,7 +5,7 @@ de la Autoridad Portuaria, en cuatro pestañas: **Hoy**, **Entradas**, **Salidas
 
 | Pestaña | Fuente |
 |---|---|
-| **Hoy** | entradas + salidas combinadas |
+| **Hoy** | entradas + salidas combinadas, con el fondeadero aparte |
 | **Entradas** | https://www.puertosantander.es/es/entradas-hoy |
 | **Salidas** | https://www.puertosantander.es/es/salidas-hoy |
 | **En puerto** | https://www.puertosantander.es/es/buques-en-el-puerto |
@@ -124,13 +124,24 @@ figura ese día.
 ### Fondeos
 
 La web agrupa bajo el muelle FONDEO los buques que esperan fuera de la bahía. La aplicación los
-trata como una categoría propia, con las etiquetas FONDEA y LEVA, y los saca del horario
+trata como una categoría propia **en las cuatro pantallas**: en cada lista tienen su propio
+bloque plegable al final, con la cabecera FONDEADERO, y en la pantalla principal van abajo, tras
+los movimientos de muelle. Las etiquetas son FONDEA y LEVA, y los saca del horario
 principal: un fondeo nunca se marca como próximo movimiento y no cuenta como entrada ni salida
 del puerto, de modo que el atraque posterior conserva su papel de entrada real. El destino se
 deduce buscando en las tres listas otra fila con el mismo número de escala y muelle real; se
 prefiere la posterior al fondeo y, cuando las horas de la web no son coherentes (a veces el
 atraque figura antes que el fondeo), se toma la primera disponible. Si no hay ninguna, la ficha
 dice "Sin asignar todavía" en lugar de inventar un destino.
+
+Cuando un buque leva anclas, ese movimiento se queda en el bloque del fondeadero, y la entrada
+al muelle que viene después aparece en el bloque de puerto con su etiqueta ENTRA: es el
+movimiento que de verdad ocupa atraque.
+
+La pestaña **En puerto** va agrupada por atraques, en el mismo orden que la web del puerto, con
+una cabecera por muelle y el número de buques en cada uno, en lugar de ordenada por hora de
+salida. En la **ficha** de cada buque, el número de escala lleva el atraque al lado: el muelle en
+el que está, o "fondeado → RAOS 5" si espera fuera.
 ## Fuentes y aviso legal
 
 La aplicación incluye un botón de información (icono ⓘ en la barra superior) que muestra el
